@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Swiss Manager XLSX to XML</title>
+<title>Swiss Manager xlsx to xml</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
 body{font-family:ui-sans-serif;background:#fff;padding:30px;color:#111}
@@ -17,7 +17,9 @@ button{background:#111;color:#fff;border:none;padding:8px 14px;border-radius:8px
 </head>
 <body>
 <div class="wrap">
-<h3>Swiss Manager XLSX to XML Generator</h3>
+
+<h3>Swiss Manager XLSX TO XML Generator</h3>
+
 <input type="file" id="fileInput" accept=".xlsx,.xls">
 <br><br>
 <button onclick="loadFile()">LOAD FILE</button>
@@ -72,7 +74,37 @@ function esc(v){
 }
 
 function hasValue(v){
-  return v !== undefined && v !== null && String(v).trim() !== "";
+ return v!==undefined && v!==null && String(v).trim()!=="";
+}
+
+function rowsFromSheet(sheet){
+
+ const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
+
+ const keyMap={
+   Nama:"Firstname"
+ };
+
+ const headers=[];
+ const seen=new Set();
+
+ data.forEach(row=>{
+   const normalized={};
+
+   Object.keys(row).forEach(key=>{
+     const mappedKey=keyMap[key]||key;
+     normalized[mappedKey]=row[key];
+
+     if(!seen.has(mappedKey)){
+       headers.push(mappedKey);
+       seen.add(mappedKey);
+     }
+   });
+
+   Object.assign(row,normalized);
+ });
+
+ return {headers,data};
 }
 
 function normalizeHeader(h){
@@ -114,8 +146,10 @@ function buildSection(sheetName){
 
   const {headers, rows} = parseSheetRows(workbookGlobal.Sheets[sheetName]);
 
-  let count = 0;
-  let xml = `<${sheetName}>\n`;
+   headers.forEach(h=>{
+     if(!h||!hasValue(r[h])) return;
+     attr+=` ${h}="${esc(r[h])}"`;
+   });
 
   rows.forEach(row => {
     if(!config.validator(row)) return;
@@ -188,10 +222,23 @@ function loadFile(){
   reader.readAsArrayBuffer(file);
 }
 
-function setActiveTabVisual(tab){
-  document.querySelectorAll(".tab").forEach(t => {
-    t.classList.toggle("active", t.textContent === tab);
-  });
+ const file=document.getElementById("fileInput").files[0];
+ if(!file){
+   alert("Pilih file dulu.");
+   return;
+ }
+
+ const reader=new FileReader();
+
+ reader.onload=function(evt){
+   const data=new Uint8Array(evt.target.result);
+   workbookGlobal=XLSX.read(data,{type:"array"});
+   document.getElementById("status").innerText="File berhasil diload. XML sedang dibuat...";
+   currentTab="ALL";
+   buildXML();
+ };
+
+ reader.readAsArrayBuffer(file);
 }
 
 function setTab(tab, el){
