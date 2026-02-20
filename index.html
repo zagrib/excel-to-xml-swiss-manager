@@ -13,7 +13,6 @@ body{font-family:ui-sans-serif;background:#fff;padding:30px;color:#111}
 .tab.active{background:#111;color:#fff}
 textarea{width:100%;height:420px;border:1px solid #e5e7eb;border-radius:8px;padding:10px;font-family:monospace}
 button{background:#111;color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;margin-top:10px}
-.small{font-size:13px;color:#666}
 </style>
 </head>
 
@@ -21,16 +20,16 @@ button{background:#111;color:#fff;border:none;padding:8px 14px;border-radius:8px
 <div class="wrap">
 
 <h3>Swiss Manager PRO XML Generator</h3>
-<div class="small">Multi-Tab UI • GitHub Pages Ready</div>
 
 <input type="file" id="fileInput" accept=".xlsx,.xls">
+<button onclick="loadFile()">LOAD FILE</button>
 
 <div class="tabs">
-<div class="tab active" onclick="setTab('ALL')">ALL</div>
-<div class="tab" onclick="setTab('Teams')">Teams</div>
-<div class="tab" onclick="setTab('Players')">Players</div>
-<div class="tab" onclick="setTab('TeamCompositions')">TeamCompositions</div>
-<div class="tab" onclick="setTab('Results')">Results</div>
+<div class="tab active" onclick="setTab('ALL',this)">ALL</div>
+<div class="tab" onclick="setTab('Teams',this)">Teams</div>
+<div class="tab" onclick="setTab('Players',this)">Players</div>
+<div class="tab" onclick="setTab('TeamCompositions',this)">TeamCompositions</div>
+<div class="tab" onclick="setTab('Results',this)">Results</div>
 </div>
 
 <button onclick="copyXML()">COPY XML</button>
@@ -56,25 +55,27 @@ function esc(v){
 
 function rowsFromSheet(sheet){
  const raw=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
- const headers=raw[0]||[];
+ let headers=raw[0]||[];
 
- // jika ada kolom Nama saja
- const fixedHeaders=headers.map(h=>{
+ headers=headers.map(h=>{
    if(h==="Nama") return "Firstname";
    return h;
  });
 
  const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
- return {headers:fixedHeaders,data};
+ return {headers,data};
 }
 
-function buildTeams(wb){
- if(!wb.Sheets["Teams"]) return "";
- const {headers,data}=rowsFromSheet(wb.Sheets["Teams"]);
- let xml="<Teams>\n";
+function buildTag(wb,sheetName,tagName,validator){
+ if(!wb.Sheets[sheetName]) return "";
+
+ const {headers,data}=rowsFromSheet(wb.Sheets[sheetName]);
+
+ let xml=`<${sheetName}>\n`;
 
  data.forEach(r=>{
-   if(!r.TeamLongname||!r.TeamUniqueId) return;
+
+   if(!validator(r)) return;
 
    let attr="";
    headers.forEach(h=>{
@@ -82,120 +83,75 @@ function buildTeams(wb){
      attr+=` ${h}="${esc(r[h])}"`;
    });
 
-   xml+=`  <Team${attr}/>\n`;
+   xml+=`  <${tagName}${attr}/>\n`;
  });
 
- xml+="</Teams>\n";
- return xml;
-}
+ xml+=`</${sheetName}>\n`;
 
-function buildPlayers(wb){
- if(!wb.Sheets["Players"]) return "";
- const {headers,data}=rowsFromSheet(wb.Sheets["Players"]);
- let xml="<Players>\n";
-
- data.forEach(r=>{
-   if(!r.PlayerUniqueId||!r.Lastname||!r.Firstname) return;
-
-   let attr="";
-   headers.forEach(h=>{
-     if(!h||!r[h]) return;
-     attr+=` ${h}="${esc(r[h])}"`;
-   });
-
-   xml+=`  <Player${attr} />\n`;
- });
-
- xml+="</Players>\n";
- return xml;
-}
-
-function buildTeamComp(wb){
- if(!wb.Sheets["TeamCompositions"]) return "";
- const {headers,data}=rowsFromSheet(wb.Sheets["TeamCompositions"]);
- let xml="<TeamCompositions>\n";
-
- data.forEach(r=>{
-   if(!r.Round||!r.Board) return;
-   if(!(r.PlayerUniqueId||r.PlayerId||r.PlayerSNo)) return;
-
-   let attr="";
-   headers.forEach(h=>{
-     if(!h||!r[h]) return;
-     attr+=` ${h}="${esc(r[h])}"`;
-   });
-
-   xml+=`  <TeamComposition${attr}/>\n`;
- });
-
- xml+="</TeamCompositions>\n";
- return xml;
-}
-
-function buildResults(wb){
- if(!wb.Sheets["Results"]) return "";
- const {headers,data}=rowsFromSheet(wb.Sheets["Results"]);
- let xml="<Results>\n";
-
- data.forEach(r=>{
-   if(!r.Round) return;
-   if(!(r.PlayerWhiteUniqueId||r.PlayerWhiteId||r.PlayerWhiteSNo)) return;
-
-   let attr="";
-   headers.forEach(h=>{
-     if(!h||!r[h]) return;
-     attr+=` ${h}="${esc(r[h])}"`;
-   });
-
-   xml+=`  <Result${attr} />\n`;
- });
-
- xml+="</Results>\n";
  return xml;
 }
 
 function buildXML(){
- if(!workbookGlobal) return "";
+
+ if(!workbookGlobal){
+   document.getElementById("output").value="Belum load file.";
+   return;
+ }
 
  let xml='<?xml version="1.0" encoding="UTF-8"?>\n';
 
- if(currentTab==="ALL"){
-   xml+=buildTeams(workbookGlobal);
-   xml+=buildPlayers(workbookGlobal);
-   xml+=buildTeamComp(workbookGlobal);
-   xml+=buildResults(workbookGlobal);
+ if(currentTab==="ALL"||currentTab==="Teams"){
+   xml+=buildTag(workbookGlobal,"Teams","Team",
+     r=>r.TeamLongname&&r.TeamUniqueId);
  }
 
- if(currentTab==="Teams") xml+=buildTeams(workbookGlobal);
- if(currentTab==="Players") xml+=buildPlayers(workbookGlobal);
- if(currentTab==="TeamCompositions") xml+=buildTeamComp(workbookGlobal);
- if(currentTab==="Results") xml+=buildResults(workbookGlobal);
+ if(currentTab==="ALL"||currentTab==="Players"){
+   xml+=buildTag(workbookGlobal,"Players","Player",
+     r=>r.PlayerUniqueId&&r.Firstname);
+ }
+
+ if(currentTab==="ALL"||currentTab==="TeamCompositions"){
+   xml+=buildTag(workbookGlobal,"TeamCompositions","TeamComposition",
+     r=>r.Round&&r.Board&&(r.PlayerUniqueId||r.PlayerId||r.PlayerSNo));
+ }
+
+ if(currentTab==="ALL"||currentTab==="Results"){
+   xml+=buildTag(workbookGlobal,"Results","Result",
+     r=>r.Round&&(r.PlayerWhiteUniqueId||r.PlayerWhiteId||r.PlayerWhiteSNo));
+ }
 
  lastXML=xml;
  document.getElementById("output").value=xml;
 }
 
-function setTab(tab){
- currentTab=tab;
- document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
- event.target.classList.add("active");
- buildXML();
-}
+function loadFile(){
 
-document.getElementById("fileInput").addEventListener("change",e=>{
- const file=e.target.files[0];
- if(!file) return;
+ const file=document.getElementById("fileInput").files[0];
+ if(!file){
+   alert("Pilih file dulu");
+   return;
+ }
 
  const reader=new FileReader();
 
- reader.onload=evt=>{
+ reader.onload=function(evt){
    const data=new Uint8Array(evt.target.result);
    workbookGlobal=XLSX.read(data,{type:"array"});
    buildXML();
  };
 
  reader.readAsArrayBuffer(file);
-});
+}
+
+function setTab(tab,el){
+
+ currentTab=tab;
+
+ document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+ el.classList.add("active");
+
+ buildXML();
+}
 
 function copyXML(){
  if(!lastXML) return alert("Belum ada XML");
