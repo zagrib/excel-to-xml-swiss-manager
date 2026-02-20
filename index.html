@@ -171,7 +171,9 @@ function loadFile(){
  reader.onload=function(evt){
    const data=new Uint8Array(evt.target.result);
    workbookGlobal=XLSX.read(data,{type:"array"});
-   document.getElementById("status").innerText="File berhasil diload.";
+   document.getElementById("status").innerText="File berhasil diload. XML sedang dibuat...";
+   currentTab="ALL";
+   buildXML();
  };
 
  reader.readAsArrayBuffer(file);
