@@ -2,189 +2,241 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Swiss Manager ULTRA STABLE Tool</title>
+<title>Swiss Manager XLSX to XML</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-
 <style>
 body{font-family:ui-sans-serif;background:#fff;padding:30px;color:#111}
 .wrap{max-width:1100px;margin:auto;border:1px solid #e5e7eb;border-radius:12px;padding:20px}
-.tabs{display:flex;gap:8px;margin:12px 0}
+.tabs{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
 .tab{padding:6px 12px;border:1px solid #ddd;border-radius:8px;cursor:pointer}
 .tab.active{background:#111;color:#fff}
 textarea{width:100%;height:420px;border:1px solid #e5e7eb;border-radius:8px;padding:10px;font-family:monospace}
 button{background:#111;color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;margin-right:6px}
-.info{font-size:13px;color:#666;margin-top:8px}
+.info{font-size:13px;color:#666;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
-
 <body>
 <div class="wrap">
-
-<h3>Swiss Manager ULTRA STABLE XML Generator</h3>
-
+<h3>Swiss Manager XLSX to XML Generator</h3>
 <input type="file" id="fileInput" accept=".xlsx,.xls">
-
 <br><br>
 <button onclick="loadFile()">LOAD FILE</button>
 <button onclick="buildXML()">GENERATE XML</button>
 <button onclick="downloadXML()">DOWNLOAD RAW XML</button>
 <button onclick="copyXML()">COPY XML</button>
-
 <div class="tabs">
-<div class="tab active" onclick="setTab('ALL',this)">ALL</div>
-<div class="tab" onclick="setTab('Teams',this)">Teams</div>
-<div class="tab" onclick="setTab('Players',this)">Players</div>
-<div class="tab" onclick="setTab('TeamCompositions',this)">TeamCompositions</div>
-<div class="tab" onclick="setTab('Results',this)">Results</div>
+  <div class="tab active" onclick="setTab('ALL',this)">ALL</div>
+  <div class="tab" onclick="setTab('Teams',this)">Teams</div>
+  <div class="tab" onclick="setTab('Players',this)">Players</div>
+  <div class="tab" onclick="setTab('TeamCompositions',this)">TeamCompositions</div>
+  <div class="tab" onclick="setTab('Results',this)">Results</div>
 </div>
-
 <div class="info" id="status">Belum load file.</div>
-
-<textarea id="output"></textarea>
-
+<textarea id="output" placeholder="XML akan muncul di sini..."></textarea>
 </div>
 
 <script>
+let workbookGlobal = null;
+let currentTab = "ALL";
+let lastXML = "";
 
-let workbookGlobal=null;
-let currentTab="ALL";
-let lastXML="";
+const SHEET_CONFIG = {
+  Teams: {
+    tag: "Team",
+    validator: row => hasValue(row.TeamLongname) && hasValue(row.TeamUniqueId)
+  },
+  Players: {
+    tag: "Player",
+    validator: row => hasValue(row.PlayerUniqueId) && (hasValue(row.Firstname) || hasValue(row.Nama))
+  },
+  TeamCompositions: {
+    tag: "TeamComposition",
+    validator: row => hasValue(row.Round) && hasValue(row.Board) && (hasValue(row.PlayerUniqueId) || hasValue(row.PlayerId) || hasValue(row.PlayerSNo))
+  },
+  Results: {
+    tag: "Result",
+    validator: row => hasValue(row.Round) && (hasValue(row.PlayerWhiteUniqueId) || hasValue(row.PlayerWhiteId) || hasValue(row.PlayerWhiteSNo))
+  }
+};
+
+const KEY_MAP = {
+  Nama: "Firstname"
+};
 
 function esc(v){
- if(v===undefined||v===null) return "";
- return String(v)
-  .replace(/&/g,"&amp;")
-  .replace(/"/g,"&quot;")
-  .replace(/</g,"&lt;")
-  .replace(/>/g,"&gt;");
+  return String(v)
+    .replace(/&/g,"&amp;")
+    .replace(/"/g,"&quot;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
 }
 
-function rowsFromSheet(sheet){
-
- const raw=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
- let headers=raw[0]||[];
-
- headers=headers.map(h=>{
-   if(h==="Nama") return "Firstname";
-   return h;
- });
-
- const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
- return {headers,data};
+function hasValue(v){
+  return v !== undefined && v !== null && String(v).trim() !== "";
 }
 
-function buildTag(wb,sheetName,tagName,validator){
+function normalizeHeader(h){
+  const key = String(h ?? "").trim();
+  if(!key) return "";
+  return KEY_MAP[key] || key;
+}
 
- if(!wb.Sheets[sheetName]) return "";
+function parseSheetRows(sheet){
+  const matrix = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+    raw: false
+  });
 
- const {headers,data}=rowsFromSheet(wb.Sheets[sheetName]);
+  if(!matrix.length) return {headers: [], rows: []};
 
- let count=0;
- let xml=`<${sheetName}>\n`;
+  const sourceHeaders = matrix[0] || [];
+  const headers = sourceHeaders.map(normalizeHeader);
 
- data.forEach((r,i)=>{
+  const rows = matrix.slice(1).map(cells => {
+    const row = {};
+    headers.forEach((header, idx) => {
+      if(!header) return;
+      row[header] = cells[idx] ?? "";
+    });
+    return row;
+  });
 
-   if(!validator(r)) return;
+  return {headers: headers.filter(Boolean), rows};
+}
 
-   let attr="";
+function buildSection(sheetName){
+  const config = SHEET_CONFIG[sheetName];
+  if(!config || !workbookGlobal.Sheets[sheetName]){
+    return {xml: "", count: 0, total: 0};
+  }
 
-   headers.forEach(h=>{
-     if(!h||!r[h]) return;
-     attr+=` ${h}="${esc(r[h])}"`;
-   });
+  const {headers, rows} = parseSheetRows(workbookGlobal.Sheets[sheetName]);
 
-   xml+=`  <${tagName}${attr}/>\n`;
-   count++;
- });
+  let count = 0;
+  let xml = `<${sheetName}>\n`;
 
- xml+=`</${sheetName}>\n`;
+  rows.forEach(row => {
+    if(!config.validator(row)) return;
 
- document.getElementById("status").innerText =
-   `Sheet ${sheetName}: ${count} valid rows`;
+    let attrs = "";
+    headers.forEach(h => {
+      if(!hasValue(row[h])) return;
+      attrs += ` ${h}="${esc(row[h])}"`;
+    });
 
- return xml;
+    xml += `  <${config.tag}${attrs}/>\n`;
+    count++;
+  });
+
+  xml += `</${sheetName}>\n`;
+  return {xml, count, total: rows.length};
 }
 
 function buildXML(){
+  if(!workbookGlobal){
+    alert("Load file dulu.");
+    return;
+  }
 
- if(!workbookGlobal){
-   alert("Load file dulu.");
-   return;
- }
+  const targetSheets = currentTab === "ALL"
+    ? Object.keys(SHEET_CONFIG)
+    : [currentTab];
 
- let xml='<?xml version="1.0" encoding="UTF-8"?>\n';
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  const statusLines = [];
 
- if(currentTab==="ALL"||currentTab==="Teams"){
-   xml+=buildTag(workbookGlobal,"Teams","Team",
-     r=>r.TeamLongname&&r.TeamUniqueId);
- }
+  targetSheets.forEach(sheetName => {
+    const section = buildSection(sheetName);
+    if(section.xml) xml += section.xml;
+    statusLines.push(`${sheetName}: ${section.count} valid row(s) dari ${section.total} row(s).`);
+  });
 
- if(currentTab==="ALL"||currentTab==="Players"){
-   xml+=buildTag(workbookGlobal,"Players","Player",
-     r=>r.PlayerUniqueId&&(r.Firstname||r.Nama));
- }
-
- if(currentTab==="ALL"||currentTab==="TeamCompositions"){
-   xml+=buildTag(workbookGlobal,"TeamCompositions","TeamComposition",
-     r=>r.Round&&r.Board&&(r.PlayerUniqueId||r.PlayerId||r.PlayerSNo));
- }
-
- if(currentTab==="ALL"||currentTab==="Results"){
-   xml+=buildTag(workbookGlobal,"Results","Result",
-     r=>r.Round&&(r.PlayerWhiteUniqueId||r.PlayerWhiteId||r.PlayerWhiteSNo));
- }
-
- lastXML=xml;
- document.getElementById("output").value=xml;
+  lastXML = xml;
+  document.getElementById("output").value = xml;
+  document.getElementById("status").innerText = `XML berhasil dibuat.\n${statusLines.join("\n")}`;
 }
 
 function loadFile(){
+  const file = document.getElementById("fileInput").files[0];
+  if(!file){
+    alert("Pilih file dulu.");
+    return;
+  }
 
- const file=document.getElementById("fileInput").files[0];
- if(!file){
-   alert("Pilih file dulu.");
-   return;
- }
+  const reader = new FileReader();
 
- const reader=new FileReader();
+  reader.onload = function(evt){
+    try {
+      const data = new Uint8Array(evt.target.result);
+      workbookGlobal = XLSX.read(data, {type: "array"});
+      currentTab = "ALL";
+      setActiveTabVisual("ALL");
+      buildXML();
+    } catch(err) {
+      document.getElementById("status").innerText = `Gagal load file: ${err.message}`;
+      document.getElementById("output").value = "";
+      lastXML = "";
+    }
+  };
 
- reader.onload=function(evt){
-   const data=new Uint8Array(evt.target.result);
-   workbookGlobal=XLSX.read(data,{type:"array"});
-   document.getElementById("status").innerText="File berhasil diload.";
- };
+  reader.onerror = function(){
+    document.getElementById("status").innerText = "Gagal membaca file.";
+  };
 
- reader.readAsArrayBuffer(file);
+  reader.readAsArrayBuffer(file);
 }
 
-function setTab(tab,el){
- currentTab=tab;
- document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
- el.classList.add("active");
+function setActiveTabVisual(tab){
+  document.querySelectorAll(".tab").forEach(t => {
+    t.classList.toggle("active", t.textContent === tab);
+  });
+}
+
+function setTab(tab, el){
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+
+  if(workbookGlobal){
+    buildXML();
+  }
 }
 
 function copyXML(){
- if(!lastXML) return alert("Belum generate XML.");
- navigator.clipboard.writeText(lastXML);
+  if(!lastXML) return alert("Belum ada XML. Silakan load file dulu.");
+  navigator.clipboard.writeText(lastXML);
 }
 
 function downloadXML(){
+  if(!lastXML){
+    alert("Belum ada XML. Silakan load file dulu.");
+    return;
+  }
 
- if(!lastXML){
-   alert("Generate XML dulu.");
-   return;
- }
-
- const blob=new Blob([lastXML],{type:"text/xml"});
- const url=URL.createObjectURL(blob);
-
- const a=document.createElement("a");
- a.href=url;
- a.download="swiss-manager-export.xml";
- a.click();
-
- URL.revokeObjectURL(url);
+  const blob = new Blob([lastXML], {type: "text/xml;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "swiss-manager-export.xml";
+  a.click();
+  URL.revokeObjectURL(url);
 }
+
+window.addEventListener("DOMContentLoaded", () => {
+  const fileInput = document.getElementById("fileInput");
+
+  fileInput.addEventListener("change", () => {
+    if(fileInput.files && fileInput.files.length){
+      loadFile();
+    }
+  });
+
+  if(fileInput.files && fileInput.files.length){
+    loadFile();
+  }
+});
 
 </script>
 </body>
