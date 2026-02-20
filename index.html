@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>XLSX to XML Text Converter</title>
+
+<!-- SheetJS (wajib) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    background:#f6f7f9;
+    padding:20px;
+}
+.container{
+    max-width:800px;
+    margin:auto;
+    background:#fff;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 5px 20px rgba(0,0,0,.08);
+}
+textarea{
+    width:100%;
+    height:350px;
+    margin-top:15px;
+    font-family:monospace;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h2>XLSX → XML Text Converter</h2>
+
+<input type="file" id="fileInput" accept=".xlsx,.xls" />
+
+<textarea id="output" placeholder="Output XML akan muncul di sini..."></textarea>
+</div>
+
+<script>
+document.getElementById('fileInput').addEventListener('change', function(e){
+
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function(evt){
+
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, {type:'array'});
+
+        // Ambil sheet pertama
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet);
+
+        // =========================
+        // BUILD XML TEXT
+        // =========================
+        let xml = '<data>\n';
+
+        json.forEach(row=>{
+            xml += '  <row>\n';
+
+            Object.keys(row).forEach(key=>{
+                const tag = key.toLowerCase().replace(/[^a-z0-9_]/g,'_');
+                xml += `    <${tag}>${row[key]}</${tag}>\n`;
+            });
+
+            xml += '  </row>\n';
+        });
+
+        xml += '</data>';
+
+        // Tampilkan sebagai TEXT
+        document.getElementById('output').value = xml;
+    };
+
+    reader.readAsArrayBuffer(file);
+});
+</script>
+
+</body>
+</html>
