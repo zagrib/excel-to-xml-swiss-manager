@@ -2,45 +2,99 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>XLSX to XML Text Converter</title>
+<title>XLSX → Players XML Generator</title>
 
-<!-- SheetJS (wajib) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
 body{
-    font-family: Arial, sans-serif;
-    background:#f6f7f9;
-    padding:20px;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
+    background:#ffffff;
+    color:#111;
+    padding:40px;
 }
-.container{
-    max-width:800px;
+.wrapper{
+    max-width:900px;
     margin:auto;
-    background:#fff;
-    padding:20px;
-    border-radius:10px;
-    box-shadow:0 5px 20px rgba(0,0,0,.08);
+}
+.card{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:24px;
+}
+h2{
+    font-weight:600;
+    margin-bottom:10px;
+}
+input[type=file]{
+    margin-top:10px;
 }
 textarea{
     width:100%;
-    height:350px;
-    margin-top:15px;
+    height:420px;
+    margin-top:20px;
+    border-radius:8px;
+    border:1px solid #e5e7eb;
+    padding:12px;
     font-family:monospace;
+    font-size:13px;
+}
+.actions{
+    margin-top:10px;
+    display:flex;
+    gap:10px;
+}
+button{
+    background:#111;
+    color:#fff;
+    border:none;
+    padding:8px 14px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+}
+button:hover{
+    opacity:.85;
+}
+.small{
+    color:#666;
+    font-size:13px;
 }
 </style>
 </head>
 
 <body>
 
-<div class="container">
-<h2>XLSX → XML Text Converter</h2>
+<div class="wrapper">
+<div class="card">
 
-<input type="file" id="fileInput" accept=".xlsx,.xls" />
+<h2>XLSX → Players XML Generator</h2>
+<div class="small">Attribute mengikuti urutan header XLSX • GitHub Pages Ready</div>
 
-<textarea id="output" placeholder="Output XML akan muncul di sini..."></textarea>
+<input type="file" id="fileInput" accept=".xlsx,.xls">
+
+<div class="actions">
+<button onclick="copyXML()">COPY XML</button>
+</div>
+
+<textarea id="output" placeholder="XML output akan muncul di sini..."></textarea>
+
+</div>
 </div>
 
 <script>
+
+let lastXML = "";
+
+// Escape XML aman
+function escapeXML(value){
+    return String(value)
+        .replace(/&/g,"&amp;")
+        .replace(/"/g,"&quot;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;");
+}
+
 document.getElementById('fileInput').addEventListener('change', function(e){
 
     const file = e.target.files[0];
@@ -51,36 +105,60 @@ document.getElementById('fileInput').addEventListener('change', function(e){
     reader.onload = function(evt){
 
         const data = new Uint8Array(evt.target.result);
-        const workbook = XLSX.read(data, {type:'array'});
+        const workbook = XLSX.read(data,{type:'array'});
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
 
-        // Ambil sheet pertama
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet);
-
-        // =========================
-        // BUILD XML TEXT
-        // =========================
-        let xml = '<data>\n';
-
-        json.forEach(row=>{
-            xml += '  <row>\n';
-
-            Object.keys(row).forEach(key=>{
-                const tag = key.toLowerCase().replace(/[^a-z0-9_]/g,'_');
-                xml += `    <${tag}>${row[key]}</${tag}>\n`;
-            });
-
-            xml += '  </row>\n';
+        // Ambil header asli (fix order)
+        const raw = XLSX.utils.sheet_to_json(sheet, {
+            header:1,
+            defval:""
         });
 
-        xml += '</data>';
+        const headers = raw[0]; // header XLSX
 
-        // Tampilkan sebagai TEXT
+        // Convert jadi object rows
+        const rows = XLSX.utils.sheet_to_json(sheet,{defval:""});
+
+        // ======================
+        // BUILD XML
+        // ======================
+        let xml = "<Players>\n";
+
+        rows.forEach(row=>{
+
+            let attr = "";
+
+            // loop sesuai urutan HEADER (fix order)
+            headers.forEach(header=>{
+
+                if(!header) return;
+
+                let value = row[header];
+
+                // skip jika kosong
+                if(value === "" || value === null || value === undefined) return;
+
+                attr += ` ${header}="${escapeXML(value)}"`;
+            });
+
+            xml += `  <Player${attr} />\n`;
+        });
+
+        xml += "</Players>";
+
+        lastXML = xml;
         document.getElementById('output').value = xml;
     };
 
     reader.readAsArrayBuffer(file);
 });
+
+function copyXML(){
+    if(!lastXML) return alert("Belum ada XML");
+    navigator.clipboard.writeText(lastXML);
+}
+
 </script>
 
 </body>
