@@ -2,164 +2,206 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>XLSX → Players XML Generator</title>
-
+<title>Swiss Manager PRO XML Tool</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
-body{
-    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
-    background:#ffffff;
-    color:#111;
-    padding:40px;
-}
-.wrapper{
-    max-width:900px;
-    margin:auto;
-}
-.card{
-    border:1px solid #e5e7eb;
-    border-radius:12px;
-    padding:24px;
-}
-h2{
-    font-weight:600;
-    margin-bottom:10px;
-}
-input[type=file]{
-    margin-top:10px;
-}
-textarea{
-    width:100%;
-    height:420px;
-    margin-top:20px;
-    border-radius:8px;
-    border:1px solid #e5e7eb;
-    padding:12px;
-    font-family:monospace;
-    font-size:13px;
-}
-.actions{
-    margin-top:10px;
-    display:flex;
-    gap:10px;
-}
-button{
-    background:#111;
-    color:#fff;
-    border:none;
-    padding:8px 14px;
-    border-radius:8px;
-    cursor:pointer;
-    font-size:13px;
-}
-button:hover{
-    opacity:.85;
-}
-.small{
-    color:#666;
-    font-size:13px;
-}
+body{font-family:ui-sans-serif;background:#fff;padding:30px;color:#111}
+.wrap{max-width:1000px;margin:auto;border:1px solid #e5e7eb;border-radius:12px;padding:20px}
+.tabs{display:flex;gap:8px;margin:10px 0}
+.tab{padding:6px 12px;border:1px solid #ddd;border-radius:8px;cursor:pointer}
+.tab.active{background:#111;color:#fff}
+textarea{width:100%;height:420px;border:1px solid #e5e7eb;border-radius:8px;padding:10px;font-family:monospace}
+button{background:#111;color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;margin-top:10px}
+.small{font-size:13px;color:#666}
 </style>
 </head>
 
 <body>
+<div class="wrap">
 
-<div class="wrapper">
-<div class="card">
-
-<h2>XLSX → Players XML Generator</h2>
-<div class="small">Attribute mengikuti urutan header XLSX • GitHub Pages Ready</div>
+<h3>Swiss Manager PRO XML Generator</h3>
+<div class="small">Multi-Tab UI • GitHub Pages Ready</div>
 
 <input type="file" id="fileInput" accept=".xlsx,.xls">
 
-<div class="actions">
+<div class="tabs">
+<div class="tab active" onclick="setTab('ALL')">ALL</div>
+<div class="tab" onclick="setTab('Teams')">Teams</div>
+<div class="tab" onclick="setTab('Players')">Players</div>
+<div class="tab" onclick="setTab('TeamCompositions')">TeamCompositions</div>
+<div class="tab" onclick="setTab('Results')">Results</div>
+</div>
+
 <button onclick="copyXML()">COPY XML</button>
-</div>
 
-<textarea id="output" placeholder="XML output akan muncul di sini..."></textarea>
+<textarea id="output"></textarea>
 
-</div>
 </div>
 
 <script>
 
-let lastXML = "";
+let workbookGlobal=null;
+let currentTab="ALL";
+let lastXML="";
 
-// Escape XML aman
-function escapeXML(value){
-    return String(value)
-        .replace(/&/g,"&amp;")
-        .replace(/"/g,"&quot;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;");
+function esc(v){
+ if(v===undefined||v===null) return "";
+ return String(v)
+  .replace(/&/g,"&amp;")
+  .replace(/"/g,"&quot;")
+  .replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;");
 }
 
-document.getElementById('fileInput').addEventListener('change', function(e){
+function rowsFromSheet(sheet){
+ const raw=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
+ const headers=raw[0]||[];
 
-    const file = e.target.files[0];
-    if(!file) return;
+ // jika ada kolom Nama saja
+ const fixedHeaders=headers.map(h=>{
+   if(h==="Nama") return "Firstname";
+   return h;
+ });
 
-    const reader = new FileReader();
+ const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
+ return {headers:fixedHeaders,data};
+}
 
-    reader.onload = function(evt){
+function buildTeams(wb){
+ if(!wb.Sheets["Teams"]) return "";
+ const {headers,data}=rowsFromSheet(wb.Sheets["Teams"]);
+ let xml="<Teams>\n";
 
-        const data = new Uint8Array(evt.target.result);
-        const workbook = XLSX.read(data,{type:'array'});
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
+ data.forEach(r=>{
+   if(!r.TeamLongname||!r.TeamUniqueId) return;
 
-        // Ambil header asli (fix order)
-        const raw = XLSX.utils.sheet_to_json(sheet, {
-            header:1,
-            defval:""
-        });
+   let attr="";
+   headers.forEach(h=>{
+     if(!h||!r[h]) return;
+     attr+=` ${h}="${esc(r[h])}"`;
+   });
 
-        const headers = raw[0]; // header XLSX
+   xml+=`  <Team${attr}/>\n`;
+ });
 
-        // Convert jadi object rows
-        const rows = XLSX.utils.sheet_to_json(sheet,{defval:""});
+ xml+="</Teams>\n";
+ return xml;
+}
 
-        // ======================
-        // BUILD XML
-        // ======================
-        let xml = "<Players>\n";
+function buildPlayers(wb){
+ if(!wb.Sheets["Players"]) return "";
+ const {headers,data}=rowsFromSheet(wb.Sheets["Players"]);
+ let xml="<Players>\n";
 
-        rows.forEach(row=>{
+ data.forEach(r=>{
+   if(!r.PlayerUniqueId||!r.Lastname||!r.Firstname) return;
 
-            let attr = "";
+   let attr="";
+   headers.forEach(h=>{
+     if(!h||!r[h]) return;
+     attr+=` ${h}="${esc(r[h])}"`;
+   });
 
-            // loop sesuai urutan HEADER (fix order)
-            headers.forEach(header=>{
+   xml+=`  <Player${attr} />\n`;
+ });
 
-                if(!header) return;
+ xml+="</Players>\n";
+ return xml;
+}
 
-                let value = row[header];
+function buildTeamComp(wb){
+ if(!wb.Sheets["TeamCompositions"]) return "";
+ const {headers,data}=rowsFromSheet(wb.Sheets["TeamCompositions"]);
+ let xml="<TeamCompositions>\n";
 
-                // skip jika kosong
-                if(value === "" || value === null || value === undefined) return;
+ data.forEach(r=>{
+   if(!r.Round||!r.Board) return;
+   if(!(r.PlayerUniqueId||r.PlayerId||r.PlayerSNo)) return;
 
-                attr += ` ${header}="${escapeXML(value)}"`;
-            });
+   let attr="";
+   headers.forEach(h=>{
+     if(!h||!r[h]) return;
+     attr+=` ${h}="${esc(r[h])}"`;
+   });
 
-            xml += `  <Player${attr} />\n`;
-        });
+   xml+=`  <TeamComposition${attr}/>\n`;
+ });
 
-        xml += "</Players>";
+ xml+="</TeamCompositions>\n";
+ return xml;
+}
 
-        lastXML = xml;
-        document.getElementById('output').value = xml;
-    };
+function buildResults(wb){
+ if(!wb.Sheets["Results"]) return "";
+ const {headers,data}=rowsFromSheet(wb.Sheets["Results"]);
+ let xml="<Results>\n";
 
-    reader.readAsArrayBuffer(file);
+ data.forEach(r=>{
+   if(!r.Round) return;
+   if(!(r.PlayerWhiteUniqueId||r.PlayerWhiteId||r.PlayerWhiteSNo)) return;
+
+   let attr="";
+   headers.forEach(h=>{
+     if(!h||!r[h]) return;
+     attr+=` ${h}="${esc(r[h])}"`;
+   });
+
+   xml+=`  <Result${attr} />\n`;
+ });
+
+ xml+="</Results>\n";
+ return xml;
+}
+
+function buildXML(){
+ if(!workbookGlobal) return "";
+
+ let xml='<?xml version="1.0" encoding="UTF-8"?>\n';
+
+ if(currentTab==="ALL"){
+   xml+=buildTeams(workbookGlobal);
+   xml+=buildPlayers(workbookGlobal);
+   xml+=buildTeamComp(workbookGlobal);
+   xml+=buildResults(workbookGlobal);
+ }
+
+ if(currentTab==="Teams") xml+=buildTeams(workbookGlobal);
+ if(currentTab==="Players") xml+=buildPlayers(workbookGlobal);
+ if(currentTab==="TeamCompositions") xml+=buildTeamComp(workbookGlobal);
+ if(currentTab==="Results") xml+=buildResults(workbookGlobal);
+
+ lastXML=xml;
+ document.getElementById("output").value=xml;
+}
+
+function setTab(tab){
+ currentTab=tab;
+ document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+ event.target.classList.add("active");
+ buildXML();
+}
+
+document.getElementById("fileInput").addEventListener("change",e=>{
+ const file=e.target.files[0];
+ if(!file) return;
+
+ const reader=new FileReader();
+
+ reader.onload=evt=>{
+   const data=new Uint8Array(evt.target.result);
+   workbookGlobal=XLSX.read(data,{type:"array"});
+   buildXML();
+ };
+
+ reader.readAsArrayBuffer(file);
 });
 
 function copyXML(){
-    if(!lastXML) return alert("Belum ada XML");
-    navigator.clipboard.writeText(lastXML);
+ if(!lastXML) return alert("Belum ada XML");
+ navigator.clipboard.writeText(lastXML);
 }
 
 </script>
-
 </body>
 </html>
