@@ -59,17 +59,37 @@ function esc(v){
   .replace(/>/g,"&gt;");
 }
 
+function hasValue(v){
+ return v!==undefined && v!==null && String(v).trim()!=="";
+}
+
 function rowsFromSheet(sheet){
 
- const raw=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
- let headers=raw[0]||[];
+ const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
 
- headers=headers.map(h=>{
-   if(h==="Nama") return "Firstname";
-   return h;
+ const keyMap={
+   Nama:"Firstname"
+ };
+
+ const headers=[];
+ const seen=new Set();
+
+ data.forEach(row=>{
+   const normalized={};
+
+   Object.keys(row).forEach(key=>{
+     const mappedKey=keyMap[key]||key;
+     normalized[mappedKey]=row[key];
+
+     if(!seen.has(mappedKey)){
+       headers.push(mappedKey);
+       seen.add(mappedKey);
+     }
+   });
+
+   Object.assign(row,normalized);
  });
 
- const data=XLSX.utils.sheet_to_json(sheet,{defval:""});
  return {headers,data};
 }
 
@@ -89,7 +109,7 @@ function buildTag(wb,sheetName,tagName,validator){
    let attr="";
 
    headers.forEach(h=>{
-     if(!h||!r[h]) return;
+     if(!h||!hasValue(r[h])) return;
      attr+=` ${h}="${esc(r[h])}"`;
    });
 
